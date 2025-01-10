@@ -3,18 +3,20 @@ from ultralytics import YOLO
 import cv2
 import cvzone
 import math
-from Sort import *
 from deep_sort_realtime.deepsort_tracker import DeepSort
 
 # Load Video
-cap = cv2.VideoCapture("Files/Videos/cars.mp4")
 model = YOLO("Weights/yolov8n")
+output_file = "NewVideo.mp4"
 
-# Load Image
-# model = YOLO('Weights/yolov8n.pt')
-# results = model("Files/Images/people.jpg", show=True)
-# cv2.waitKey(0)
+input_file = cv2.VideoCapture("Files/Videos/cars.mp4")
+frame_width = int(input_file.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(input_file.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = int(input_file.get(cv2.CAP_PROP_FPS))
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for .mp4 files
+out = cv2.VideoWriter(output_file, fourcc, fps, (frame_width, frame_height))
 
+# Class names
 classNames = ["person", "bicycle", "car", "motorbike", "aeroplane", "bus", "train", "truck", "boat",
               "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
               "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella",
@@ -43,7 +45,9 @@ tracker = DeepSort(max_age=50,
                    today=None)
 
 while True:
-    success, img = cap.read()
+    success, img = input_file.read()
+    if not success:
+        break  # End of video
 
     results = model(img, stream=True)
 
@@ -59,34 +63,29 @@ while True:
             # Confidence
             conf = math.ceil((box.conf[0] * 100)) / 100
             # Class name
-            cls = int(box.cls[0]) # class label
+            cls = int(box.cls[0])  # class label
             currentClass = classNames[cls]
 
             boundingBox = (x1, y1, w, h)
 
             # Detect vehicles
-            if currentClass == "car" or currentClass == "truck" or currentClass == "bus" or currentClass == "motorbike" \
-                    and conf > 0.3:
+            if currentClass == "car" or currentClass == "truck" or currentClass == "bus" or currentClass == "motorbike" and conf > 0.3:
                 cvzone.cornerRect(img, boundingBox, l=9, rt=2, colorR=(255, 0, 0))  # Draw bounding box
-                currentArray = np.array([x1, y1, x2, y2, conf])
                 detection = ([x1, y1, w, h], conf, cls)
                 detections.append(detection)
 
             # Detect people
             if currentClass == "person" and conf > 0.3:
-                #cvzone.cornerRect(img, boundingBox, l=9, rt=5)
                 cvzone.cornerRect(img, boundingBox, l=9, rt=2, colorR=(255, 0, 0))  # Draw bounding box
-                boundingBoxPosition = (max(0, x1), max(35, y1))
-                currentArray = np.array([x1, y1, x2, y2, conf])
                 detection = ([x1, y1, w, h], conf, cls)
                 detections.append(detection)
 
+    # Update tracks - Provide full frame to DeepSort for embedding generation
     resultsTracker = tracker.update_tracks(detections, frame=img)
 
     for result in resultsTracker:
         # Get bounding box coordinates
         x1, y1, x2, y2 = result.to_tlbr()
-        # Get tracker ID
         tracker_id = result.track_id
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
         w, h = x2 - x1, y2 - y1
@@ -96,5 +95,15 @@ while True:
         boundingBoxPosition = (max(0, x1), max(35, y1))
         cvzone.putTextRect(img, f'{int(tracker_id)}', boundingBoxPosition, 1, 1)
 
-    cv2.imshow("Image", img)
-    cv2.waitKey(1)
+    # Write the modified frame to the output video
+    out.write(img)
+
+    # Display the video in a window (optional)
+    cv2.imshow("Output Video", img)
+    if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to exit early
+        break
+
+# Release resources
+input_file.release()
+out.release()
+cv2.destroyAllWindows()
